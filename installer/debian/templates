@@ -1,0 +1,21 @@
+Template: ocm/vpn_host
+Type: string
+Description: Public hostname or IP of this VPN server:
+ Clients will connect to this address. Use the public DNS name or static IP
+ that clients can reach.
+
+Template: ocm/vpn_port
+Type: string
+Default: 1194
+Description: OpenVPN listening port:
+
+Template: ocm/vpn_proto
+Type: select
+Choices: udp, tcp
+Default: udp
+Description: OpenVPN protocol:
+
+Template: ocm/http_port
+Type: string
+Default: 80
+Description: HTTP port for the OCM web console (served by nginx):

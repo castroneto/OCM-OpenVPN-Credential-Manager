@@ -1,0 +1,20 @@
+#!/bin/sh
+# OCM post-removal cleanup.
+set -e
+
+case "$1" in
+  remove)
+    systemctl disable ocm-api.service >/dev/null 2>&1 || true
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    ;;
+  purge)
+    # Remove data, config and PKI on purge only.
+    rm -rf /var/lib/ocm /etc/ocm /etc/openvpn/ocm
+    if getent passwd ocm >/dev/null; then
+      deluser --quiet --system ocm >/dev/null 2>&1 || true
+    fi
+    systemctl daemon-reload >/dev/null 2>&1 || true
+    ;;
+esac
+
+exit 0

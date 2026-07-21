@@ -1,0 +1,26 @@
+{
+  "name": "@ocm/cli",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "ocm-admin": "dist/main.js"
+  },
+  "main": "dist/main.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "admin": "node dist/main.js",
+    "typecheck": "tsc --noEmit",
+    "test": "echo \"no unit tests configured\" && exit 0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.6.3"
+  }
+}

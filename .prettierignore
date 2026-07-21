@@ -1,0 +1,8 @@
+**/dist
+**/node_modules
+**/coverage
+pnpm-lock.yaml
+installer/debian/build
+*.deb
+project.md
+

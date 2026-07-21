@@ -1,0 +1,10 @@
+# syntax=docker/dockerfile:1
+# OpenVPN server that shares the PKI volume produced by the OCM API.
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    openvpn easy-rsa openssl iptables \
+    && rm -rf /var/lib/apt/lists/*
+COPY docker/openvpn-entrypoint.sh /usr/local/bin/openvpn-entrypoint
+RUN chmod +x /usr/local/bin/openvpn-entrypoint
+EXPOSE 1194/udp
+CMD ["/usr/local/bin/openvpn-entrypoint"]

@@ -1,0 +1,65 @@
+# OCM local stack. From the repo root:
+#
+#   docker compose -f docker/docker-compose.yml up --build
+#
+# A single service (NestJS) serves the API AND the web console, with OpenVPN
+# credential issuing (PKI provisioned automatically on first boot).
+# Web console -> http://localhost:8080
+#
+# The system starts with NO admin. Create the first one (CLI is app @ocm/cli):
+#   docker compose -f docker/docker-compose.yml exec -u ocm api node cli/main.js create admin
+#
+# To also run a live OpenVPN server, enable the "vpn" profile:
+#   docker compose -f docker/docker-compose.yml --profile vpn up --build
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.api
+    environment:
+      # Dev default — override for anything beyond local evaluation.
+      OCM_JWT_SECRET: ${OCM_JWT_SECRET:-dev-only-insecure-secret-change-me-32b!}
+      OCM_VPN_HOST: ${OCM_VPN_HOST:-localhost}
+      OCM_VPN_PORT: ${OCM_VPN_PORT:-1194}
+      OCM_VPN_PROTO: ${OCM_VPN_PROTO:-udp}
+    ports:
+      - '${OCM_HTTP_PORT:-8080}:3000'
+    volumes:
+      - ocm-data:/data
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    restart: unless-stopped
+
+  openvpn:
+    profiles: ['vpn']
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.openvpn
+    environment:
+      OCM_VPN_PORT: ${OCM_VPN_PORT:-1194}
+      OCM_VPN_PROTO: ${OCM_VPN_PROTO:-udp}
+    ports:
+      - '${OCM_VPN_PORT:-1194}:1194/udp'
+    volumes:
+      - ocm-data:/data
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  ocm-data:

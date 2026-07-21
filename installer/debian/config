@@ -1,0 +1,15 @@
+#!/bin/sh
+# Debconf config script: interactive first-run configuration while installing.
+set -e
+
+. /usr/share/debconf/confmodule
+
+db_input high ocm/vpn_host || true
+db_go || true
+
+db_input medium ocm/vpn_port || true
+db_input medium ocm/vpn_proto || true
+db_input medium ocm/http_port || true
+db_go || true
+
+exit 0

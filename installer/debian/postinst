@@ -1,0 +1,92 @@
+#!/bin/sh
+# OCM post-installation: verifies OpenVPN, provisions config/PKI/services.
+# The system starts with NO admin - create one with `ocm-admin create`.
+set -e
+
+. /usr/share/debconf/confmodule
+
+OCM_HOME=/opt/ocm
+OCM_ETC=/etc/ocm
+OCM_DATA=/var/lib/ocm
+OCM_USER=ocm
+ENV_FILE="$OCM_ETC/ocm.env"
+
+case "$1" in
+  configure)
+    # --- verify OpenVPN is already installed (do not install it) -----------
+    if ! command -v openvpn >/dev/null 2>&1; then
+      echo "ERROR: OpenVPN is not installed." >&2
+      echo "OCM manages credentials for an existing OpenVPN server." >&2
+      echo "Install it first:  sudo apt install openvpn" >&2
+      exit 1
+    fi
+
+    # --- system user -------------------------------------------------------
+    if ! getent passwd "$OCM_USER" >/dev/null; then
+      adduser --system --group --home "$OCM_HOME" --no-create-home \
+        --disabled-login --quiet "$OCM_USER"
+    fi
+
+    install -d -m 0750 -o "$OCM_USER" -g "$OCM_USER" "$OCM_DATA"
+    install -d -m 0750 -o "$OCM_USER" -g "$OCM_USER" "$OCM_ETC"
+
+    # --- gather debconf answers -------------------------------------------
+    db_get ocm/vpn_host;  VPN_HOST="$RET"
+    db_get ocm/vpn_port;  VPN_PORT="${RET:-1194}"
+    db_get ocm/vpn_proto; VPN_PROTO="${RET:-udp}"
+    db_get ocm/http_port; HTTP_PORT="${RET:-80}"
+
+    if [ -z "$VPN_HOST" ]; then
+      VPN_HOST="$(hostname -I 2>/dev/null | awk '{print $1}')"
+    fi
+
+    # --- environment file (0640, owned by ocm) ----------------------------
+    if [ ! -f "$ENV_FILE" ]; then
+      JWT_SECRET="$(openssl rand -hex 32)"
+      umask 027
+      cat > "$ENV_FILE" <<EOF
+NODE_ENV=production
+OCM_PORT=$HTTP_PORT
+OCM_BIND_ADDR=0.0.0.0
+OCM_WEB_ROOT=$OCM_HOME/web
+OCM_DATABASE_PATH=$OCM_DATA/ocm.sqlite
+OCM_JWT_SECRET=$JWT_SECRET
+OCM_JWT_TTL_SECONDS=1800
+OCM_LOGIN_MAX_ATTEMPTS=5
+OCM_LOGIN_LOCK_SECONDS=900
+OCM_OPENVPN_DIR=/etc/openvpn/ocm
+OCM_PKI_DIR=/etc/openvpn/ocm/pki
+OCM_EASYRSA_BIN=/usr/share/easy-rsa/easyrsa
+EOF
+      chown "$OCM_USER":"$OCM_USER" "$ENV_FILE"
+      chmod 0640 "$ENV_FILE"
+    fi
+
+    # --- OpenVPN PKI provisioning ------------------------------------------
+    OCM_VPN_HOST="$VPN_HOST" OCM_VPN_PORT="$VPN_PORT" OCM_VPN_PROTO="$VPN_PROTO" \
+      sh "$OCM_HOME/installer/setup-pki.sh"
+
+    # --- database schema (no admin seeded) ---------------------------------
+    su -s /bin/sh "$OCM_USER" -c \
+      "cd $OCM_HOME/api && set -a && . $ENV_FILE && set +a && node dist/database/migrate.js"
+
+    # --- services (NestJS serves both the API and the web console) ---------
+    systemctl daemon-reload || true
+    systemctl enable ocm-api.service >/dev/null 2>&1 || true
+    systemctl restart ocm-api.service || true
+    systemctl restart openvpn@ocm-server.service >/dev/null 2>&1 || true
+
+    echo "-------------------------------------------------------------"
+    echo " OCM installed."
+    echo "   Web console : http://$VPN_HOST:$HTTP_PORT"
+    echo "   VPN         : $VPN_PROTO://$VPN_HOST:$VPN_PORT"
+    echo ""
+    echo " No administrator exists yet. Create the first one:"
+    echo "     sudo ocm-admin create <username>"
+    echo "-------------------------------------------------------------"
+
+    db_stop || true
+    ;;
+esac
+
+exit 0

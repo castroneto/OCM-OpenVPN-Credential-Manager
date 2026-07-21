@@ -1,0 +1,13 @@
+Package: ocm
+Version: 0.0.0
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: nodejs (>= 20), easy-rsa, openssl, adduser
+Recommends: openvpn
+Maintainer: OCM Maintainers <ocm@example.com>
+Description: OCM - OpenVPN Credential Manager
+ Secure, minimal admin panel to issue and revoke OpenVPN client credentials.
+ Bundles a NestJS API and a React web console. OpenVPN is expected to be
+ already installed on the host (the installer verifies it). The system starts
+ with no administrator - create the first one with the ocm-admin CLI.

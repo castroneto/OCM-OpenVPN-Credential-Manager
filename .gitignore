@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+*.local
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Debian build artifacts
+installer/debian/build/
+*.deb
+
+# Secrets / PKI (never commit)
+pki/
+*.key
+*.crt
+*.pem
+*.ovpn
