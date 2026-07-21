@@ -32,6 +32,12 @@ npm-debug.log*
 installer/debian/build/
 *.deb
 
+# Playwright artifacts (screenshots under docs/ are committed)
+e2e/test-results/
+e2e/playwright-report/
+e2e/.playwright/
+.playwright/
+
 # Secrets / PKI (never commit)
 pki/
 *.key

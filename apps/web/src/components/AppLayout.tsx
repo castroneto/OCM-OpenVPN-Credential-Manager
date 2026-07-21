@@ -44,7 +44,12 @@ export function AppLayout() {
               {navItem('/admins', 'Admins')}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger>
-                  <Button variant="outline" size="2" color="gray">
+                  <Button
+                    variant="outline"
+                    size="2"
+                    color="gray"
+                    data-testid="user-menu"
+                  >
                     {user?.username}
                     <DropdownMenu.TriggerIcon />
                   </Button>
