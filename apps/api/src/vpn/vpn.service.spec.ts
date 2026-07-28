@@ -14,6 +14,7 @@ function makeCredential(over: Partial<VpnCredential> = {}): VpnCredential {
     name: 'alice',
     commonName: 'alice-abc123',
     description: null,
+    hasPassword: false,
     status: VpnCredentialStatus.ACTIVE,
     createdAt: '2026-01-01T00:00:00.000Z',
     revokedAt: null,
@@ -95,6 +96,38 @@ describe('VpnService.create', () => {
     expect(repo.findByCommonName.mock.calls.length).toBeGreaterThanOrEqual(2);
     expect(easyRsa.issueClient).toHaveBeenCalledTimes(1);
     expect(repo.insert).toHaveBeenCalledTimes(1);
+  });
+
+  it('passes the password through to the PKI layer and records hasPassword', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findActiveByName.mockReturnValue(null);
+    repo.findById.mockReturnValue(makeCredential({ hasPassword: true }));
+
+    await service.create({ name: 'alice', password: 'super-secret' });
+
+    expect(easyRsa.issueClient).toHaveBeenCalledWith(
+      expect.stringMatching(/^alice-[0-9a-f]{6}$/),
+      'super-secret',
+    );
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ hasPassword: true }),
+    );
+  });
+
+  it('records hasPassword: false when no password is given', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findActiveByName.mockReturnValue(null);
+    repo.findById.mockReturnValue(makeCredential());
+
+    await service.create({ name: 'alice' });
+
+    expect(easyRsa.issueClient).toHaveBeenCalledWith(
+      expect.stringMatching(/^alice-[0-9a-f]{6}$/),
+      undefined,
+    );
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ hasPassword: false }),
+    );
   });
 });
 

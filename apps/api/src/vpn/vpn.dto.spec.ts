@@ -55,6 +55,28 @@ describe('CreateVpnCredentialDto', () => {
       }),
     ).toContain('commonName');
   });
+
+  it('accepts an omitted password (key ships unencrypted)', () => {
+    expect(invalidProps(CreateVpnCredentialDto, { name: 'alice' })).toEqual([]);
+  });
+
+  it('accepts a password of at least 8 characters', () => {
+    expect(
+      invalidProps(CreateVpnCredentialDto, {
+        name: 'alice',
+        password: 'longenough',
+      }),
+    ).toEqual([]);
+  });
+
+  it('rejects a password shorter than 8 characters', () => {
+    expect(
+      invalidProps(CreateVpnCredentialDto, {
+        name: 'alice',
+        password: 'short',
+      }),
+    ).toContain('password');
+  });
 });
 
 describe('VpnCredentialIdParamDto', () => {

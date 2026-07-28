@@ -58,5 +58,11 @@ export function applySchema(db: Database.Database): void {
   addColumnIfMissing(db, 'ALTER TABLE vpn_credentials ADD COLUMN name TEXT');
   db.exec('UPDATE vpn_credentials SET name = common_name WHERE name IS NULL');
 
+  // Tracks whether the issued private key is passphrase-encrypted.
+  addColumnIfMissing(
+    db,
+    'ALTER TABLE vpn_credentials ADD COLUMN has_password INTEGER NOT NULL DEFAULT 0',
+  );
+
   for (const statement of INDEX_STATEMENTS) db.exec(statement);
 }

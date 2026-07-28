@@ -51,7 +51,7 @@ export class VpnService {
     // Derive a globally-unique PKI Common Name from the reusable label, so a
     // revoked "alice" stays in the CRL while a new "alice" gets a fresh cert.
     const commonName = this.uniqueCommonName(dto.name);
-    const issued = await this.easyRsa.issueClient(commonName);
+    const issued = await this.easyRsa.issueClient(commonName, dto.password);
 
     const id = randomUUID();
     this.repository.insert({
@@ -61,6 +61,7 @@ export class VpnService {
       description: dto.description ?? null,
       createdAt: new Date().toISOString(),
       expiresAt: issued.expiresAt,
+      hasPassword: Boolean(dto.password),
     });
 
     return { credential: this.getById(id), profile: issued.profile };

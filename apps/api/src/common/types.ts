@@ -30,6 +30,8 @@ export interface VpnCredential {
   commonName: string;
   description: string | null;
   status: VpnCredentialStatus;
+  /** Whether the client's private key is passphrase-encrypted. */
+  hasPassword: boolean;
   createdAt: string;
   revokedAt: string | null;
   expiresAt: string | null;

@@ -103,10 +103,15 @@ export const api = {
   createCredential: (
     name: string,
     description: string,
+    password?: string,
   ): Promise<{ credential: VpnCredential; profile: string }> =>
     request<{ credential: VpnCredential; profile: string }>(Routes.vpn.root, {
       method: 'POST',
-      body: description ? { name, description } : { name },
+      body: {
+        name,
+        ...(description ? { description } : {}),
+        ...(password ? { password } : {}),
+      },
     }),
 
   revokeCredential: (id: string): Promise<VpnCredential> =>

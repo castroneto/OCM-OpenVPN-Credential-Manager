@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -80,15 +80,63 @@ export class EasyRsaService {
     }
   }
 
-  /** Issue a client certificate and return a ready-to-use inline profile. */
-  async issueClient(commonName: string): Promise<IssuedCredential> {
+  /**
+   * Issue a client certificate and return a ready-to-use inline profile.
+   *
+   * The key is always generated `nopass` first (keeps easy-rsa's batch mode
+   * deterministic — it has no non-interactive way to set a passphrase
+   * itself), then re-encrypted in place with `openssl` when a password is
+   * given. The passphrase is piped over stdin, never argv or an env var, so
+   * it never appears in `ps` output or process logs.
+   */
+  async issueClient(
+    commonName: string,
+    password?: string,
+  ): Promise<IssuedCredential> {
     this.assertValidCommonName(commonName);
     return this.serialize(async () => {
       await this.runEasyRsa(['build-client-full', commonName, 'nopass']);
+      if (password) {
+        await this.encryptPrivateKey(commonName, password);
+      }
       const profile = await this.buildProfile(commonName);
       const expiresAt = await this.readCertExpiry(commonName);
       return { profile, expiresAt };
     });
+  }
+
+  /** Encrypt an already-issued private key in place with an AES-256 passphrase. */
+  private async encryptPrivateKey(
+    commonName: string,
+    password: string,
+  ): Promise<void> {
+    const keyPath = join(this.config.pkiDir, 'private', `${commonName}.key`);
+    const tmpPath = `${keyPath}.tmp`;
+    try {
+      const run = execFileAsync(
+        'openssl',
+        [
+          'pkey',
+          '-in',
+          keyPath,
+          '-out',
+          tmpPath,
+          '-aes256',
+          '-passout',
+          'stdin',
+        ],
+        { timeout: 30_000 },
+      );
+      run.child.stdin?.end(`${password}\n`);
+      await run;
+    } catch (err) {
+      this.logger.error(
+        'openssl key encryption failed',
+        err instanceof Error ? err.message : String(err),
+      );
+      throw new InternalServerErrorException('PKI operation failed');
+    }
+    await rename(tmpPath, keyPath);
   }
 
   /**

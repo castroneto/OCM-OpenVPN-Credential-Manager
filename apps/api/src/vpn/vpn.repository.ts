@@ -8,6 +8,7 @@ interface VpnRow {
   common_name: string;
   description: string | null;
   status: string;
+  has_password: number;
   created_at: string;
   revoked_at: string | null;
   expires_at: string | null;
@@ -20,6 +21,7 @@ function mapRow(row: VpnRow): VpnCredential {
     name: row.name ?? row.common_name,
     commonName: row.common_name,
     description: row.description,
+    hasPassword: Boolean(row.has_password),
     status:
       row.status === VpnCredentialStatus.REVOKED
         ? VpnCredentialStatus.REVOKED
@@ -80,12 +82,13 @@ export class VpnRepository {
     description: string | null;
     createdAt: string;
     expiresAt: string | null;
+    hasPassword: boolean;
   }): void {
     this.database.db
       .prepare(
         `INSERT INTO vpn_credentials
-           (id, name, common_name, description, status, created_at, revoked_at, expires_at)
-         VALUES (?, ?, ?, ?, 'ACTIVE', ?, NULL, ?)`,
+           (id, name, common_name, description, status, created_at, revoked_at, expires_at, has_password)
+         VALUES (?, ?, ?, ?, 'ACTIVE', ?, NULL, ?, ?)`,
       )
       .run(
         record.id,
@@ -94,6 +97,7 @@ export class VpnRepository {
         record.description,
         record.createdAt,
         record.expiresAt,
+        record.hasPassword ? 1 : 0,
       );
   }
 

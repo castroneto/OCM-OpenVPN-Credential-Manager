@@ -33,6 +33,16 @@ export class CreateVpnCredentialDto {
   @IsString()
   @MaxLength(255)
   description?: string;
+
+  /**
+   * Optional passphrase to encrypt the client's private key. Never persisted
+   * or logged — piped straight to `openssl` over stdin (see EasyRsaService)
+   * and discarded. If omitted, the key ships unencrypted (`nopass`), as before.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(8, 128)
+  password?: string;
 }
 
 /** Route param `:id` for a VPN credential. */

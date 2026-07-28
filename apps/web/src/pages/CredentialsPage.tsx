@@ -7,6 +7,7 @@ import {
   Dialog,
   Flex,
   Heading,
+  Switch,
   Table,
   Text,
   TextField,
@@ -149,7 +150,18 @@ function CredentialRow({
   return (
     <Table.Row>
       <Table.RowHeaderCell>
-        {credential.name}
+        <Flex align="center" gap="2">
+          {credential.name}
+          {credential.hasPassword && (
+            <Badge
+              color="gray"
+              variant="soft"
+              title="Private key is password-protected"
+            >
+              🔒 Password
+            </Badge>
+          )}
+        </Flex>
         <Text as="div" size="1" color="gray">
           {credential.commonName}
         </Text>
@@ -214,8 +226,33 @@ function CreateCredentialDialog({
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [protectWithPassword, setProtectWithPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const passwordError =
+    protectWithPassword && password.length > 0 && password.length < 8
+      ? 'Password must be at least 8 characters'
+      : protectWithPassword &&
+          confirmPassword.length > 0 &&
+          password !== confirmPassword
+        ? 'Passwords do not match'
+        : null;
+
+  const canSubmit =
+    name.trim().length > 0 &&
+    (!protectWithPassword ||
+      (password.length >= 8 && password === confirmPassword));
+
+  function resetForm() {
+    setName('');
+    setDescription('');
+    setProtectWithPassword(false);
+    setPassword('');
+    setConfirmPassword('');
+  }
 
   async function submit() {
     setError(null);
@@ -224,10 +261,10 @@ function CreateCredentialDialog({
       const { credential, profile } = await api.createCredential(
         name.trim(),
         description.trim(),
+        protectWithPassword ? password : undefined,
       );
       triggerDownload(`${credential.name}.ovpn`, profile);
-      setName('');
-      setDescription('');
+      resetForm();
       setOpen(false);
       await onCreated();
     } catch (err) {
@@ -282,6 +319,64 @@ function CreateCredentialDialog({
               placeholder="Alice — engineering"
             />
           </label>
+
+          <Flex asChild align="center" gap="2">
+            <label>
+              <Switch
+                checked={protectWithPassword}
+                onCheckedChange={(checked) => {
+                  setProtectWithPassword(checked);
+                  if (!checked) {
+                    setPassword('');
+                    setConfirmPassword('');
+                  }
+                }}
+              />
+              <Text size="2" weight="medium">
+                Protect private key with a password
+              </Text>
+            </label>
+          </Flex>
+
+          {protectWithPassword && (
+            <>
+              <Callout.Root color="amber" size="1">
+                <Callout.Text>
+                  OCM does not store this password. If it's lost, the credential
+                  must be revoked and reissued — the .ovpn profile can't be
+                  recovered.
+                </Callout.Text>
+              </Callout.Root>
+              <label>
+                <Text as="div" size="2" mb="1" weight="medium">
+                  Password
+                </Text>
+                <TextField.Root
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                />
+              </label>
+              <label>
+                <Text as="div" size="2" mb="1" weight="medium">
+                  Confirm password
+                </Text>
+                <TextField.Root
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+              {passwordError && (
+                <Text size="1" color="red">
+                  {passwordError}
+                </Text>
+              )}
+            </>
+          )}
         </Flex>
 
         <Flex gap="3" mt="4" justify="end">
@@ -290,7 +385,7 @@ function CreateCredentialDialog({
               Cancel
             </Button>
           </Dialog.Close>
-          <Button onClick={submit} loading={submitting} disabled={!name.trim()}>
+          <Button onClick={submit} loading={submitting} disabled={!canSubmit}>
             Create &amp; download
           </Button>
         </Flex>

@@ -18,6 +18,7 @@ export interface VpnCredential {
   commonName: string;
   description: string | null;
   status: VpnCredentialStatus;
+  hasPassword: boolean;
   createdAt: string;
   revokedAt: string | null;
   expiresAt: string | null;
