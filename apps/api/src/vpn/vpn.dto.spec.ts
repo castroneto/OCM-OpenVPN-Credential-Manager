@@ -3,6 +3,7 @@ import { validateSync } from 'class-validator';
 import {
   CreateVpnCredentialDto,
   PaginationQueryDto,
+  RenewVpnCredentialDto,
   VpnCredentialIdParamDto,
 } from './vpn.dto';
 
@@ -69,6 +70,36 @@ describe('CreateVpnCredentialDto', () => {
     ).toEqual([]);
   });
 
+  // openssl reads the passphrase as a single line from stdin. A newline would
+  // silently truncate it — a leading one leaving the key encrypted with an
+  // EMPTY passphrase while the credential still claims to be protected.
+  it('rejects a password containing a newline (silent truncation)', () => {
+    expect(
+      invalidProps(CreateVpnCredentialDto, {
+        name: 'alice',
+        password: 'primeira\nsegunda',
+      }),
+    ).toContain('password');
+  });
+
+  it('rejects a password starting with a newline (would become empty)', () => {
+    expect(
+      invalidProps(CreateVpnCredentialDto, {
+        name: 'alice',
+        password: '\nSenhaForte1',
+      }),
+    ).toContain('password');
+  });
+
+  it('still accepts spaces and punctuation in a passphrase', () => {
+    expect(
+      invalidProps(CreateVpnCredentialDto, {
+        name: 'alice',
+        password: 'uma frase secreta com espaços!',
+      }),
+    ).toEqual([]);
+  });
+
   it('rejects a password shorter than 8 characters', () => {
     expect(
       invalidProps(CreateVpnCredentialDto, {
@@ -76,6 +107,30 @@ describe('CreateVpnCredentialDto', () => {
         password: 'short',
       }),
     ).toContain('password');
+  });
+});
+
+describe('RenewVpnCredentialDto', () => {
+  it('allows renewing without changing the passphrase', () => {
+    expect(invalidProps(RenewVpnCredentialDto, {})).toEqual([]);
+  });
+
+  it('applies the same passphrase rules as issuing', () => {
+    expect(
+      invalidProps(RenewVpnCredentialDto, { password: '\nSenhaForte1' }),
+    ).toContain('password');
+    expect(
+      invalidProps(RenewVpnCredentialDto, { password: 'curta' }),
+    ).toContain('password');
+    expect(
+      invalidProps(RenewVpnCredentialDto, { password: 'senha valida 123' }),
+    ).toEqual([]);
+  });
+
+  it('rejects smuggling a different name or description', () => {
+    expect(invalidProps(RenewVpnCredentialDto, { name: 'outro' })).toContain(
+      'name',
+    );
   });
 });
 

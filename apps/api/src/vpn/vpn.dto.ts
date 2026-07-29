@@ -12,6 +12,19 @@ import {
 } from 'class-validator';
 
 /**
+ * Printable characters only — no control characters, and crucially no newline.
+ *
+ * The passphrase is delivered to `openssl` on stdin, which reads a single line:
+ * anything after a newline is silently dropped, so "a\nb" would encrypt the key
+ * with just "a", and a leading newline would encrypt it with an EMPTY
+ * passphrase while the credential still reports itself as password-protected.
+ * Rejecting the input is the only way to keep the flag honest.
+ */
+const PASSPHRASE_PATTERN = /^[^\p{Cc}]+$/u;
+const PASSPHRASE_MESSAGE =
+  'password must not contain line breaks or control characters';
+
+/**
  * Body used to issue a new OpenVPN credential. `name` is a reusable human label
  * — the service derives a unique PKI Common Name from it (name + random
  * suffix), so a name can be reused after its previous credential is revoked.
@@ -42,6 +55,7 @@ export class CreateVpnCredentialDto {
   @IsOptional()
   @IsString()
   @Length(8, 128)
+  @Matches(PASSPHRASE_PATTERN, { message: PASSPHRASE_MESSAGE })
   password?: string;
 }
 
@@ -54,6 +68,7 @@ export class RenewVpnCredentialDto {
   @IsOptional()
   @IsString()
   @Length(8, 128)
+  @Matches(PASSPHRASE_PATTERN, { message: PASSPHRASE_MESSAGE })
   password?: string;
 }
 
