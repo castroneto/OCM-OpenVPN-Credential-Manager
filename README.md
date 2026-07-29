@@ -4,15 +4,21 @@ A secure, minimal admin panel to **issue and revoke OpenVPN client credentials**
 for an **existing OpenVPN server**. One job, done well. Focus: **security,
 simplicity, functionality**.
 
+> **OCM manages your VPN — it never installs one.** It attaches to an OpenVPN
+> server that is already running, issues clients from the CA that server already
+> uses, and leaves its configuration, routing and firewall untouched. It does
+> not create a CA, a server certificate or a VPN instance.
+
 - **API** — NestJS + `better-sqlite3`, admin-only, every route validated by DTOs,
   login brute-force lockout.
 - **Web** — React + Vite + `@radix-ui/themes`.
 - **CLI** — `ocm-admin` creates/resets admins locally. The system starts with
   **no admin** — create the first one from the browser (first-run setup wizard)
   or the CLI.
-- **Installer** — a `.deb` that **verifies OpenVPN is installed** (it does not
-  install it) and provisions the PKI, with interactive first-run config. The
-  NestJS service serves both the API and the console — no nginx.
+- **Installer** — a `.deb` that **attaches to your existing OpenVPN**: it
+  verifies the deployment, adopts its easy-rsa PKI and derives a client profile
+  template from the running server config. The NestJS service serves both the
+  API and the console — no nginx.
 
 ---
 
@@ -42,10 +48,10 @@ simplicity, functionality**.
 │  React web │ ─────────────▶│  NestJS API  │ ──────────────▶ │  easy-rsa │
 │ (radix-ui) │◀───────────── │ better-sqlite│                 │  (PKI)    │
 └────────────┘  JWT (Bearer) └──────────────┘                 └───────────┘
-   served by the same          systemd: ocm-api        openvpn@ocm-server
-   NestJS process (no nginx)                            (existing openvpn)
+   served by the same          systemd: ocm-api         your existing
+   NestJS process (no nginx)                            openvpn server
 
-  ocm-admin CLI ─▶ same SQLite file (create / reset / list admins)
+  ocm-admin CLI ─▶ same SQLite file (admins + import existing clients)
 ```
 
 - The API is the only component that touches the PKI. It shells out to
@@ -53,6 +59,9 @@ simplicity, functionality**.
   never string interpolation.
 - SQLite stores admin accounts and credential metadata. Certificates/keys live
   in the OpenVPN PKI on disk, never in the database.
+- The PKI is **adopted, not created**. OCM reads the server config to match its
+  control channel (`tls-crypt`/`tls-auth`), cipher and port, so the profiles it
+  builds work with the server you already run.
 
 ## Project layout
 
@@ -63,7 +72,7 @@ apps/
   cli/          ocm-admin — standalone admin CLI (better-sqlite3 only)
 installer/
   debian/       control, maintainer scripts, debconf templates
-  scripts/      build-deb.sh, setup-pki.sh, ocm-admin
+  scripts/      build-deb.sh, setup-openvpn.sh, ocm-admin
   systemd/      ocm-api.service
 docker/         Dockerfiles + compose (evaluation)
 docs/           architecture & security notes
@@ -72,62 +81,76 @@ docs/           architecture & security notes
 No shared `packages/` — the app is small enough that the API and web each keep
 their own local types. Simplicity over layering.
 
-## Get started — deploy on an Ubuntu server (e.g. a DigitalOcean droplet)
+## Get started — install onto your OpenVPN server
 
-Target: a fresh **Ubuntu 24.04** server (amd64 for a standard droplet; use the
-`arm64` package on ARM). SSH in as root.
+Target: the **Ubuntu/Debian host already running OpenVPN** (amd64 or arm64
+package to match). SSH in as root.
 
-**1. Prerequisites.** Ubuntu ships Node 18, but OCM needs Node ≥ 20 — install it
-from NodeSource (it becomes the apt `nodejs` package the `.deb` depends on),
-plus OpenVPN + easy-rsa:
+**Prerequisite:** a working OpenVPN server with an **easy-rsa PKI** — i.e. a
+directory holding `ca.crt` and `private/ca.key` (typically
+`/etc/openvpn/easy-rsa/pki`). OCM issues clients from that CA; if there is no
+PKI, the installer stops and asks you to set OpenVPN up first.
+
+**1. Install Node ≥ 20** (Ubuntu ships 18; the `.deb` depends on the apt
+`nodejs` package):
 
 ```bash
 apt update
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt install -y nodejs openvpn easy-rsa
+apt install -y nodejs easy-rsa
 ```
 
 **2. Download the `.deb`** from the GitHub Release (matching the arch):
 
 ```bash
-curl -fLO https://github.com/castroneto/OCM-OpenVPN-Credential-Manager/releases/download/v0.1.0/ocm_0.1.0_amd64.deb
+curl -fLO https://github.com/castroneto/OCM-OpenVPN-Credential-Manager/releases/download/v0.3.0/ocm_0.3.0_amd64.deb
 ```
 
-**3. Install it.** The installer verifies OpenVPN, provisions the PKI and starts
-the services. debconf asks for the public host/IP, VPN port & protocol, and the
-HTTP port for the console:
+**3. Install it.** debconf asks where your OpenVPN lives — the PKI directory,
+the config directory, the public host clients connect to, and the console's
+port and bind address:
 
 ```bash
-apt install -y ./ocm_0.1.0_amd64.deb
+apt install -y ./ocm_0.3.0_amd64.deb
 ```
 
-**4. Open the firewall** (SSH, the VPN port, and the console port):
+The installer verifies OpenVPN, adopts that PKI, derives a matching client
+template into `/etc/ocm/client-template.ovpn`, and starts the console. **No
+VPN, CA or server certificate is created, and no routing or firewall rule is
+changed.**
+
+**4. Adopt the clients you already issued** (optional) — so the console lists
+them and can revoke or re-download their profiles:
 
 ```bash
-ufw allow OpenSSH
-ufw allow 1194/udp        # OpenVPN
-ufw allow 80/tcp          # the HTTP port you chose for the console
-ufw enable
+sudo ocm-admin import-clients --dry-run   # preview
+sudo ocm-admin import-clients
 ```
 
-> On DigitalOcean, mirror these in the **Cloud Firewall** if you use one.
+It reads the CA's `index.txt`, skips the server certificate and anything
+already known, and only inserts metadata rows — certificates and keys are never
+touched.
 
-**5. Create the first administrator** — open `http://<server>:<http_port>` and
-the **first-run setup wizard** appears; or from the shell:
+**5. Create the first administrator** — the console starts with none:
 
 ```bash
 sudo ocm-admin create admin
 ```
 
-**6. Use it.** Sign in → **Credentials → New credential** → a ready-to-use
-`.ovpn` downloads immediately. Import it into any OpenVPN client.
+**6. Open the console.** It binds `127.0.0.1` by default, so reach it through
+an SSH tunnel and browse to `http://localhost:8080`:
 
-> ⚠️ **Before exposing the console publicly:** it serves plain **HTTP** and binds
-> `0.0.0.0`. Until TLS is set up, either reach it over an **SSH tunnel**
-> (`ssh -L 8080:127.0.0.1:80 root@<server>`), restrict the console port to your
-> IP in the firewall, or put a TLS reverse proxy (Caddy/nginx + Let's Encrypt)
-> in front. The `1194/udp` VPN port is fine to leave open — that traffic is
-> already encrypted.
+```bash
+ssh -L 8080:127.0.0.1:80 root@<server>
+```
+
+Sign in → **Credentials → New credential** → a ready-to-use `.ovpn` downloads
+immediately, built for the server you already run.
+
+> ⚠️ **Before binding the console to a public interface:** it serves plain
+> **HTTP**. Put a TLS reverse proxy (Caddy/nginx + Let's Encrypt) in front, or
+> restrict the port to your IP in the firewall. The default `127.0.0.1` keeps
+> it off the network entirely.
 
 ### ocm-admin CLI
 
@@ -138,14 +161,15 @@ sudo ocm-admin create <username>          # create an admin
 sudo ocm-admin reset-password <username>  # rotate a password
 sudo ocm-admin list                       # list admins
 sudo ocm-admin delete <username>          # remove an admin
+sudo ocm-admin import-clients [--dry-run] # adopt clients already in the PKI
 ```
 
 ### Build the .deb yourself
 
 ```bash
 pnpm install
-bash installer/scripts/build-deb.sh 0.1.0
-# -> dist/ocm_0.1.0_amd64.deb
+bash installer/scripts/build-deb.sh 0.3.0
+# -> dist/ocm_0.3.0_amd64.deb
 ```
 
 Requires `dpkg-deb` (from `dpkg-dev`) and `pnpm`. Build on amd64 so the

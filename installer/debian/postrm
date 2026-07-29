@@ -2,14 +2,20 @@
 # OCM post-removal cleanup.
 set -e
 
+DROPIN_DIR=/etc/systemd/system/ocm-api.service.d
+
 case "$1" in
   remove)
     systemctl disable ocm-api.service >/dev/null 2>&1 || true
     systemctl daemon-reload >/dev/null 2>&1 || true
     ;;
   purge)
-    # Remove data, config and PKI on purge only.
-    rm -rf /var/lib/ocm /etc/ocm /etc/openvpn/ocm
+    # Remove only what OCM owns: its database, its configuration and the unit
+    # drop-in. The PKI is NEVER touched - it belongs to the OpenVPN server that
+    # was here before OCM and stays working after it is gone.
+    rm -rf /var/lib/ocm /etc/ocm
+    rm -f "$DROPIN_DIR/10-pki-path.conf"
+    rmdir "$DROPIN_DIR" 2>/dev/null || true
     if getent passwd ocm >/dev/null; then
       deluser --quiet --system ocm >/dev/null 2>&1 || true
     fi

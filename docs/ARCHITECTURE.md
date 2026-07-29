@@ -65,12 +65,18 @@ needs no server reload and never drops active sessions.
 
 ```
 admin_users(id, username, password_hash, role, created_at, updated_at)
-vpn_credentials(id, common_name, description, status, created_at,
-                revoked_at, expires_at)
+vpn_credentials(id, name, common_name, description, status, created_at,
+                revoked_at, expires_at, has_password)
 ```
 
 The system starts with **zero** `admin_users`; the first row is created by the
-`ocm-admin` CLI. Certificates/keys are not stored in SQLite.
+`ocm-admin` CLI. Certificates/keys are not stored in SQLite — `has_password`
+only records _whether_ a key is passphrase-encrypted, never the passphrase.
+
+Since the CA predates OCM, `ocm-admin import-clients` back-fills
+`vpn_credentials` from the CA's `index.txt` (skipping the server certificate,
+identified by its `serverAuth` extended key usage). It writes metadata rows
+only; the PKI is read-only to it.
 
 ## Deployment topology (.deb)
 
@@ -78,15 +84,39 @@ The system starts with **zero** `admin_users`; the first row is created by the
 ocm-api (systemd, user "ocm")  ─▶  :HTTP_PORT  serves both:
     • /            → SPA from /opt/ocm/web  (@nestjs/serve-static)
     • /api/*       → NestJS API
-openvpn@ocm-server  ─▶  /etc/openvpn/ocm-server.conf  (PKI in /etc/openvpn/ocm)
+your openvpn server ─▶ untouched; OCM only reads its config and writes its PKI
 ocm-admin           ─▶  /usr/bin/ocm-admin → /opt/ocm/cli/dist/main.js
 ```
 
 There is **no nginx**: a single NestJS process serves the API and the static
 console, bound to `OCM_BIND_ADDR` on `OCM_PORT`. The unit grants only
 `CAP_NET_BIND_SERVICE` so the unprivileged `ocm` user can listen on port 80.
-OpenVPN is expected to be already installed; the installer verifies it rather
-than pulling it in. There is no dnsmasq — clients are pushed a public resolver.
+
+### Adopting an existing OpenVPN
+
+The installer **attaches to a VPN that is already running** — it never creates a
+CA, a server certificate, a server config or a systemd unit for OpenVPN, and it
+touches neither routing (`sysctl`, `iptables`) nor the firewall.
+
+`setup-openvpn.sh` locates the server config (the one declaring `server <net>`),
+derives the settings a client must mirror — protocol, port, cipher, auth and the
+control-channel mode — and writes them to `/etc/ocm/openvpn.env`, which the
+service loads alongside `ocm.env`:
+
+| Variable              | Meaning                                             |
+| --------------------- | --------------------------------------------------- |
+| `OCM_PKI_DIR`         | The adopted easy-rsa PKI.                           |
+| `OCM_CLIENT_TEMPLATE` | Base `.ovpn`, derived once then owned by the admin. |
+| `OCM_TLS_MODE`        | `tls-crypt`, `tls-auth` or `none`.                  |
+| `OCM_TLS_KEY_PATH`    | The control-channel key.                            |
+
+`tls-auth` and `tls-crypt` are **not interchangeable**: a `tls-auth` server
+rejects a `tls-crypt` profile. `tls-auth` is also directional, so the client
+side gets `key-direction 1`. Getting this wrong yields profiles that fail only
+at connect time, which is why it is derived rather than assumed.
+
+Because the PKI sits outside the unit's `ReadWritePaths` (and `ProtectSystem=full`
+makes `/etc` read-only), the package writes a drop-in granting exactly that path.
 
 ### Session revocation
 

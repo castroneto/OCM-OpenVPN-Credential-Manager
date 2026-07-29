@@ -1,21 +1,38 @@
+Template: ocm/pki_dir
+Type: string
+Default: /etc/openvpn/easy-rsa/pki
+Description: Path to your existing easy-rsa PKI:
+ OCM issues and revokes client certificates from the CA your OpenVPN server
+ already uses. It never creates a CA of its own.
+ .
+ This directory must contain ca.crt and private/ca.key.
+
+Template: ocm/openvpn_dir
+Type: string
+Default: /etc/openvpn
+Description: OpenVPN configuration directory:
+ Where your server configuration lives. OCM reads it to build client profiles
+ that match the running server; the configuration itself is never modified.
+
 Template: ocm/vpn_host
 Type: string
-Description: Public hostname or IP of this VPN server:
- Clients will connect to this address. Use the public DNS name or static IP
- that clients can reach.
-
-Template: ocm/vpn_port
-Type: string
-Default: 1194
-Description: OpenVPN listening port:
-
-Template: ocm/vpn_proto
-Type: select
-Choices: udp, tcp
-Default: udp
-Description: OpenVPN protocol:
+Description: Public hostname or IP clients connect to:
+ Used as the "remote" line of the generated .ovpn profiles. Use the public DNS
+ name or static IP your VPN clients can reach.
 
 Template: ocm/http_port
 Type: string
 Default: 80
-Description: HTTP port for the OCM web console (served by nginx):
+Description: HTTP port for the OCM web console:
+
+Template: ocm/bind_addr
+Type: string
+Default: 127.0.0.1
+Description: Address the web console binds to:
+ The console is served over plain HTTP. The default (127.0.0.1) exposes it
+ locally only, reachable through an SSH tunnel:
+ .
+     ssh -L 8080:127.0.0.1:<port> root@<server>
+ .
+ Use 0.0.0.0 to listen on every interface - only do so behind a TLS reverse
+ proxy or a firewall that restricts who can reach the port.

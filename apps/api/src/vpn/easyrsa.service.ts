@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { X509Certificate } from 'node:crypto';
-import { readFile, rename } from 'node:fs/promises';
+import { chmod, readFile, rename } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -61,6 +61,40 @@ export class EasyRsaService {
       EASYRSA_BATCH: '1',
       EASYRSA_CRL_DAYS: String(this.config.crlDays),
     };
+  }
+
+  /** Base `.ovpn` template; defaults to one inside the OpenVPN directory. */
+  private get clientTemplatePath(): string {
+    return (
+      this.config.clientTemplatePath ||
+      join(this.config.openvpnDir, 'client-template.ovpn')
+    );
+  }
+
+  /** Control-channel key; defaults to `ta.key` in the OpenVPN directory. */
+  private get tlsKeyPath(): string {
+    return this.config.tlsKeyPath || join(this.config.openvpnDir, 'ta.key');
+  }
+
+  /**
+   * Keep `crl.pem` world-readable.
+   *
+   * OpenVPN re-reads the CRL on every connection, but by then it has dropped to
+   * an unprivileged user (`user nobody`), while easy-rsa writes the file with
+   * `umask 077`. Left alone, a refresh makes the server unable to read its own
+   * CRL and it rejects *every* client. A CRL is public data, so widening it is
+   * safe. Best-effort: never let this break a revoke.
+   */
+  private async ensureCrlReadable(): Promise<void> {
+    const crlPath = join(this.config.pkiDir, 'crl.pem');
+    if (!existsSync(crlPath)) return;
+    try {
+      await chmod(crlPath, 0o644);
+    } catch (err) {
+      this.logger.warn(
+        `Could not relax crl.pem permissions: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   private async runEasyRsa(args: string[]): Promise<void> {
@@ -147,7 +181,10 @@ export class EasyRsaService {
   async regenerateCrl(): Promise<void> {
     if (!existsSync(join(this.config.pkiDir, 'ca.crt'))) return;
     try {
-      await this.serialize(() => this.runEasyRsa(['gen-crl']));
+      await this.serialize(async () => {
+        await this.runEasyRsa(['gen-crl']);
+        await this.ensureCrlReadable();
+      });
       this.logger.log('CRL regenerated');
     } catch (err) {
       this.logger.warn(
@@ -162,6 +199,7 @@ export class EasyRsaService {
     await this.serialize(async () => {
       await this.runEasyRsa(['revoke', commonName]);
       await this.runEasyRsa(['gen-crl']);
+      await this.ensureCrlReadable();
     });
   }
 
@@ -194,13 +232,14 @@ export class EasyRsaService {
 
   /**
    * Assemble the inline `.ovpn`: base template + CA + client cert/key +
-   * tls-crypt key. The base template lives at `<openvpnDir>/client-template.ovpn`.
+   * control-channel key. The template defaults to
+   * `<openvpnDir>/client-template.ovpn` and mirrors the managed server.
    */
   private async buildProfile(commonName: string): Promise<string> {
-    const templatePath = join(this.config.openvpnDir, 'client-template.ovpn');
+    const templatePath = this.clientTemplatePath;
     if (!existsSync(templatePath)) {
       throw new InternalServerErrorException(
-        'client-template.ovpn is missing; run the installer configuration',
+        `Client template is missing at ${templatePath}; run the installer configuration`,
       );
     }
 
@@ -221,10 +260,13 @@ export class EasyRsaService {
       inlineTag('key', key.trim()),
     ];
 
-    const tlsCryptPath = join(this.config.openvpnDir, 'ta.key');
-    if (existsSync(tlsCryptPath)) {
-      const tlsCrypt = await readFile(tlsCryptPath, 'utf8');
-      sections.push(inlineTag('tls-crypt', tlsCrypt.trim()));
+    // Control channel. `tls-auth` is directional — the client side is always
+    // key-direction 1 — whereas `tls-crypt` has no direction at all.
+    const { tlsMode } = this.config;
+    if (tlsMode !== 'none' && existsSync(this.tlsKeyPath)) {
+      const tlsKey = await readFile(this.tlsKeyPath, 'utf8');
+      if (tlsMode === 'tls-auth') sections.push('key-direction 1');
+      sections.push(inlineTag(tlsMode, tlsKey.trim()));
     }
 
     return sections.join('\n\n') + '\n';

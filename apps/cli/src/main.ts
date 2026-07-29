@@ -9,6 +9,7 @@
  *   ocm-admin reset-password <username>
  *   ocm-admin list
  *   ocm-admin delete <username>
+ *   ocm-admin import-clients [--dry-run]
  *
  * Passwords are read interactively (never passed as arguments).
  */
@@ -19,6 +20,12 @@ import * as readline from 'node:readline';
 import Database from 'better-sqlite3';
 import { ADMIN_USERS_SCHEMA } from './schema';
 import { hashPassword } from './password';
+import {
+  isClientCertificate,
+  isKeyEncrypted,
+  pkiPaths,
+  readIndex,
+} from './pki';
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,64}$/;
 const MIN_PASSWORD_LENGTH = 12;
@@ -218,6 +225,93 @@ function deleteAdmin(username: string | undefined): void {
   console.log(`Admin "${username}" deleted.`);
 }
 
+/**
+ * Adopt the clients of an existing CA into OCM's database.
+ *
+ * OCM manages a PKI that predates it, so the certificates in `index.txt` are
+ * the source of truth. This only inserts the metadata rows the console lists —
+ * it never touches a certificate, a key or the CA. Re-runnable: entries already
+ * known are skipped, so it can be repeated after the CA issues more clients.
+ */
+function importClients(dryRun: boolean): void {
+  const pkiDir = process.env.OCM_PKI_DIR;
+  if (!pkiDir) {
+    fail(
+      'OCM_PKI_DIR is not set. Run via the ocm-admin wrapper, or export it first.',
+    );
+  }
+  if (!existsSync(pkiDir)) fail(`PKI directory not found: ${pkiDir}`);
+
+  const entries = readIndex(pkiDir);
+  if (entries.length === 0) fail(`No certificate index found under ${pkiDir}.`);
+
+  const db = openDb();
+  const hasTable = db
+    .prepare(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`)
+    .get('vpn_credentials');
+  if (!hasTable) {
+    db.close();
+    fail('Schema missing. Start the API once (or run its migration) first.');
+  }
+
+  const paths = pkiPaths(pkiDir);
+  const known = db.prepare(
+    'SELECT id FROM vpn_credentials WHERE common_name = ?',
+  );
+  const insert = db.prepare(
+    `INSERT INTO vpn_credentials
+       (id, name, common_name, description, status, created_at, revoked_at, expires_at, has_password)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+
+  let imported = 0;
+  let skipped = 0;
+  const now = new Date().toISOString();
+
+  for (const entry of entries) {
+    const { commonName } = entry;
+    if (known.get(commonName)) {
+      skipped += 1;
+      continue;
+    }
+    // The server certificate shares the database but is not a credential.
+    if (!isClientCertificate(paths.certPath(commonName))) {
+      skipped += 1;
+      continue;
+    }
+
+    const status = entry.revoked ? 'REVOKED' : 'ACTIVE';
+    const hasPassword = isKeyEncrypted(paths.keyPath(commonName));
+    // eslint-disable-next-line no-console
+    console.log(
+      `${dryRun ? 'would import' : 'imported'}  ${commonName}\t${status}${
+        hasPassword ? '\tpassword-protected' : ''
+      }`,
+    );
+
+    if (!dryRun) {
+      insert.run(
+        randomUUID(),
+        commonName,
+        commonName,
+        'Imported from the existing PKI',
+        status,
+        now,
+        entry.revokedAt,
+        entry.expiresAt,
+        hasPassword ? 1 : 0,
+      );
+    }
+    imported += 1;
+  }
+
+  db.close();
+  // eslint-disable-next-line no-console
+  console.log(
+    `\n${dryRun ? 'Would import' : 'Imported'} ${imported} credential(s); ${skipped} skipped (already known, or not a client certificate).`,
+  );
+}
+
 function usage(): void {
   // eslint-disable-next-line no-console
   console.log(
@@ -229,6 +323,9 @@ function usage(): void {
       '  ocm-admin reset-password <username>',
       '  ocm-admin list',
       '  ocm-admin delete <username>',
+      '',
+      'OpenVPN clients:',
+      '  ocm-admin import-clients [--dry-run]   adopt clients already in the PKI',
     ].join('\n'),
   );
 }
@@ -247,6 +344,9 @@ async function main(): Promise<void> {
       break;
     case 'delete':
       deleteAdmin(arg);
+      break;
+    case 'import-clients':
+      importClients(arg === '--dry-run');
       break;
     default:
       usage();

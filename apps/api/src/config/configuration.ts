@@ -12,6 +12,13 @@ import {
 export type NodeEnv = 'development' | 'production' | 'test';
 
 /**
+ * How the OpenVPN server authenticates the TLS control channel. This must match
+ * the server OCM manages: a `tls-auth` server rejects a `tls-crypt` profile and
+ * vice versa. `none` omits the block entirely.
+ */
+export type TlsMode = 'tls-crypt' | 'tls-auth' | 'none';
+
+/**
  * Strongly-typed, validated application configuration. Loaded once at boot;
  * a missing/weak value aborts startup — no insecure defaults in production.
  */
@@ -71,6 +78,21 @@ export class AppConfig {
   openvpnDir = '/etc/openvpn/ocm';
 
   /**
+   * Control-channel mode of the managed server. Must match its config, or the
+   * profiles OCM builds will be rejected at connect time.
+   */
+  @IsIn(['tls-crypt', 'tls-auth', 'none'])
+  tlsMode: TlsMode = 'tls-crypt';
+
+  /** tls-crypt/tls-auth key. Empty → `<openvpnDir>/ta.key`. */
+  @IsString()
+  tlsKeyPath = '';
+
+  /** Base `.ovpn` template. Empty → `<openvpnDir>/client-template.ovpn`. */
+  @IsString()
+  clientTemplatePath = '';
+
+  /**
    * CRL validity in days. The API regenerates the CRL on boot and weekly, so a
    * long window is simply a safety net against expiry-induced outages.
    */
@@ -100,6 +122,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     pkiDir: env.OCM_PKI_DIR ?? '/etc/openvpn/ocm/pki',
     easyRsaBin: env.OCM_EASYRSA_BIN ?? '/usr/share/easy-rsa/easyrsa',
     openvpnDir: env.OCM_OPENVPN_DIR ?? '/etc/openvpn/ocm',
+    tlsMode: env.OCM_TLS_MODE ?? 'tls-crypt',
+    tlsKeyPath: env.OCM_TLS_KEY_PATH ?? '',
+    clientTemplatePath: env.OCM_CLIENT_TEMPLATE ?? '',
     crlDays: toInt(env.OCM_CRL_DAYS, 3650),
   });
 

@@ -50,8 +50,8 @@ echo ">> Copying web build"
 cp -r "$ROOT_DIR/apps/web/dist/." "$STAGE/opt/ocm/web/"
 
 # --- installer helpers -------------------------------------------------------
-cp "$ROOT_DIR/installer/scripts/setup-pki.sh"   "$STAGE/opt/ocm/installer/setup-pki.sh"
-chmod 0755 "$STAGE/opt/ocm/installer/setup-pki.sh"
+cp "$ROOT_DIR/installer/scripts/setup-openvpn.sh" "$STAGE/opt/ocm/installer/setup-openvpn.sh"
+chmod 0755 "$STAGE/opt/ocm/installer/setup-openvpn.sh"
 
 # --- ocm-admin CLI wrapper ---------------------------------------------------
 cp "$ROOT_DIR/installer/scripts/ocm-admin" "$STAGE/usr/bin/ocm-admin"

@@ -3,13 +3,14 @@
 # Runs as the "ocm" service user so the database keeps consistent ownership.
 set -e
 
-ENV_FILE=/etc/ocm/ocm.env
 CLI=/opt/ocm/cli/dist/main.js
 
-if [ -f "$ENV_FILE" ]; then
-  # shellcheck disable=SC1090
-  set -a; . "$ENV_FILE"; set +a
-fi
+for env_file in /etc/ocm/ocm.env /etc/ocm/openvpn.env; do
+  if [ -f "$env_file" ]; then
+    # shellcheck disable=SC1090
+    set -a; . "$env_file"; set +a
+  fi
+done
 
 if [ "$(id -u)" -eq 0 ] && getent passwd ocm >/dev/null 2>&1; then
   exec runuser -u ocm --preserve-environment -- /usr/bin/node "$CLI" "$@"

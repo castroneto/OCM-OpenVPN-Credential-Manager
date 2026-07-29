@@ -4,12 +4,14 @@ set -e
 
 . /usr/share/debconf/confmodule
 
+# Where the existing OpenVPN deployment lives - OCM attaches to it.
+db_input high ocm/pki_dir || true
+db_input high ocm/openvpn_dir || true
 db_input high ocm/vpn_host || true
 db_go || true
 
-db_input medium ocm/vpn_port || true
-db_input medium ocm/vpn_proto || true
 db_input medium ocm/http_port || true
+db_input medium ocm/bind_addr || true
 db_go || true
 
 exit 0

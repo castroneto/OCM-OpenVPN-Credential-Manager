@@ -8,6 +8,12 @@ Recommends: openvpn
 Maintainer: OCM Maintainers <ocm@example.com>
 Description: OCM - OpenVPN Credential Manager
  Secure, minimal admin panel to issue and revoke OpenVPN client credentials.
- Bundles a NestJS API and a React web console. OpenVPN is expected to be
- already installed on the host (the installer verifies it). The system starts
- with no administrator - create the first one with the ocm-admin CLI.
+ Bundles a NestJS API and a React web console.
+ .
+ OCM attaches to an OpenVPN server that is already installed and configured on
+ this host: it issues clients from the existing easy-rsa CA and never creates a
+ CA, a server certificate or a VPN instance of its own. The installer verifies
+ the deployment and leaves its configuration, routing and firewall untouched.
+ .
+ The system starts with no administrator - create the first one with the
+ ocm-admin CLI.

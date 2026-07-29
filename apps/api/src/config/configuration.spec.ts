@@ -36,6 +36,24 @@ describe('loadConfig', () => {
     ).toThrow(/Invalid OCM configuration/);
   });
 
+  it('defaults the control channel to tls-crypt with derived paths', () => {
+    const config = loadConfig({ OCM_JWT_SECRET: SECRET });
+    expect(config.tlsMode).toBe('tls-crypt');
+    expect(config.tlsKeyPath).toBe('');
+    expect(config.clientTemplatePath).toBe('');
+  });
+
+  it('accepts every supported TLS mode and rejects anything else', () => {
+    for (const mode of ['tls-crypt', 'tls-auth', 'none']) {
+      expect(
+        loadConfig({ OCM_JWT_SECRET: SECRET, OCM_TLS_MODE: mode }).tlsMode,
+      ).toBe(mode);
+    }
+    expect(() =>
+      loadConfig({ OCM_JWT_SECRET: SECRET, OCM_TLS_MODE: 'tls-none' }),
+    ).toThrow(/Invalid OCM configuration/);
+  });
+
   it('rejects an invalid NODE_ENV', () => {
     expect(() =>
       loadConfig({ OCM_JWT_SECRET: SECRET, NODE_ENV: 'staging' }),
