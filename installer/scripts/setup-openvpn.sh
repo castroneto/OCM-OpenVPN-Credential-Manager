@@ -181,8 +181,23 @@ if getent passwd "$OCM_USER" >/dev/null; then
   }
 fi
 
-# See EasyRsaService.ensureCrlReadable: OpenVPN re-reads the CRL after dropping
-# privileges, so it must stay world-readable or every client is rejected.
+# --- let the running OpenVPN re-read the CRL ---------------------------------
+# OpenVPN drops to an unprivileged user (`user nobody`) and re-reads crl.pem on
+# every connection. A PKI created by a typical easy-rsa setup is 0700, so after
+# dropping privileges it cannot even stat the file: it logs
+#   WARNING: Failed to stat CRL file, not reloading CRL
+# and silently keeps using the copy loaded at startup. Revocations then appear
+# to succeed while the revoked client still connects, until the service is
+# restarted. Grant traversal only (o+x, never o+r) along the path to the CRL:
+# directories cannot be listed and every secret inside keeps its own mode —
+# private/ and issued/ stay 0770, so only the CRL, which is public, is exposed.
+dir="$PKI_DIR"
+while [ "$dir" != "/" ] && [ "$dir" != "/etc" ]; do
+  chmod o+x "$dir" || true
+  dir="$(dirname "$dir")"
+done
+
+# See EasyRsaService.ensureCrlReadable: same reason, for the file itself.
 [ -f "$PKI_DIR/crl.pem" ] && chmod 0644 "$PKI_DIR/crl.pem"
 
 echo "OCM: OpenVPN integration configured (no VPN was created or modified)."
