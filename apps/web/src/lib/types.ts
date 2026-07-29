@@ -22,6 +22,7 @@ export interface VpnCredential {
   createdAt: string;
   revokedAt: string | null;
   expiresAt: string | null;
+  supersededAt: string | null;
 }
 
 export interface AuthTokens {

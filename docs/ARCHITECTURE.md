@@ -26,7 +26,7 @@ dependency drag.
 | `database` | Owns the single `better-sqlite3` connection; runs schema.     |
 | `auth`     | Login (JWT) + in-memory brute-force lockout, password change. |
 | `admins`   | CRUD for panel administrators (the only user type).           |
-| `vpn`      | Issue / revoke credentials, build `.ovpn` profiles.           |
+| `vpn`      | Issue / renew / revoke credentials, build `.ovpn` profiles.   |
 
 The `ocm-admin` CLI lives in its own app (`apps/cli`), not in the API.
 
@@ -53,6 +53,23 @@ State is per process (resets on restart) — deliberately simple.
 `execFile(bin, [args...])` and an explicit env, and assembles inline `.ovpn`
 profiles from the template + CA + client cert/key + `tls-crypt` key.
 
+### Renewal
+
+A client certificate lives on the holder's device, so it cannot be renewed in
+place the way a server certificate can — a replacement has to be issued and
+handed over. `renew` therefore issues a fresh certificate under the same label
+(a new unique CN) and marks the previous row `superseded_at`, **without
+revoking it**: revoking at that moment would cut the holder off before they
+receive the new profile. The old entry stays usable until it is revoked or
+expires, giving an overlap window for the handover.
+
+Consequently `findActiveByName` ignores superseded rows — the replacement, not
+the superseded original, holds the label.
+
+Expiry is presentational: `status` stays `ACTIVE` for an expired certificate
+(OpenVPN is what rejects it), so the console derives `EXPIRED` and a
+30-day warning from `expires_at` rather than showing a misleading green badge.
+
 ### CRL refresh
 
 The CRL is regenerated on revoke, on every API boot, and weekly (`CrlRefreshService`
@@ -66,7 +83,7 @@ needs no server reload and never drops active sessions.
 ```
 admin_users(id, username, password_hash, role, created_at, updated_at)
 vpn_credentials(id, name, common_name, description, status, created_at,
-                revoked_at, expires_at, has_password)
+                revoked_at, expires_at, has_password, superseded_at)
 ```
 
 The system starts with **zero** `admin_users`; the first row is created by the

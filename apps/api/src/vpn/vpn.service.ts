@@ -11,7 +11,11 @@ import {
   type Paginated,
   type VpnCredential,
 } from '../common/types';
-import type { CreateVpnCredentialDto, PaginationQueryDto } from './vpn.dto';
+import type {
+  CreateVpnCredentialDto,
+  PaginationQueryDto,
+  RenewVpnCredentialDto,
+} from './vpn.dto';
 import { VpnRepository } from './vpn.repository';
 import { EasyRsaService } from './easyrsa.service';
 
@@ -65,6 +69,51 @@ export class VpnService {
     });
 
     return { credential: this.getById(id), profile: issued.profile };
+  }
+
+  /**
+   * Issue a replacement certificate for the same person.
+   *
+   * The old certificate is deliberately left valid and merely marked as
+   * superseded: a VPN client certificate lives on the holder's device, so
+   * revoking it here would cut them off before they receive the new profile.
+   * Revoke the old one once the replacement is confirmed working.
+   */
+  async renew(
+    id: string,
+    dto: RenewVpnCredentialDto,
+  ): Promise<IssuedVpnCredential> {
+    const current = this.getById(id);
+    if (current.status === VpnCredentialStatus.REVOKED) {
+      throw new BadRequestException(
+        'Credential is revoked; issue a new one instead',
+      );
+    }
+    if (current.supersededAt) {
+      throw new BadRequestException(
+        'Credential has already been renewed; renew its replacement instead',
+      );
+    }
+
+    const commonName = this.uniqueCommonName(current.name);
+    const issued = await this.easyRsa.issueClient(commonName, dto.password);
+
+    const newId = randomUUID();
+    const now = new Date().toISOString();
+    this.repository.insert({
+      id: newId,
+      name: current.name,
+      commonName,
+      description: current.description,
+      createdAt: now,
+      expiresAt: issued.expiresAt,
+      hasPassword: Boolean(dto.password),
+    });
+    // Only after the replacement exists, so a PKI failure leaves the original
+    // untouched and still the current credential.
+    this.repository.markSuperseded(id, now);
+
+    return { credential: this.getById(newId), profile: issued.profile };
   }
 
   /** `<name>-<6 hex>`, retried on the astronomically unlikely collision. */

@@ -35,6 +35,12 @@ export interface VpnCredential {
   createdAt: string;
   revokedAt: string | null;
   expiresAt: string | null;
+  /**
+   * Set when a renewal issued a replacement. The certificate remains valid —
+   * so the holder is not cut off before receiving the new profile — but this
+   * is no longer the current credential for that name.
+   */
+  supersededAt: string | null;
 }
 
 export interface AuthTokens {

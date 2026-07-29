@@ -13,6 +13,7 @@ import type { Response } from 'express';
 import {
   CreateVpnCredentialDto,
   PaginationQueryDto,
+  RenewVpnCredentialDto,
   VpnCredentialIdParamDto,
 } from './vpn.dto';
 import type { Paginated, VpnCredential } from '../common/types';
@@ -49,6 +50,15 @@ export class VpnController {
       `attachment; filename="${fileName}.ovpn"`,
     );
     return profile;
+  }
+
+  @Post(':id/renew')
+  @HttpCode(200)
+  renew(
+    @Param() params: VpnCredentialIdParamDto,
+    @Body() dto: RenewVpnCredentialDto,
+  ): Promise<IssuedVpnCredential> {
+    return this.vpn.renew(params.id, dto);
   }
 
   @Post(':id/revoke')

@@ -19,6 +19,7 @@ function makeCredential(over: Partial<VpnCredential> = {}): VpnCredential {
     createdAt: '2026-01-01T00:00:00.000Z',
     revokedAt: null,
     expiresAt: null,
+    supersededAt: null,
     ...over,
   };
 }
@@ -29,6 +30,7 @@ interface RepoMock {
   findById: jest.Mock;
   insert: jest.Mock;
   markRevoked: jest.Mock;
+  markSuperseded: jest.Mock;
   listPage: jest.Mock;
 }
 
@@ -39,6 +41,7 @@ function setup() {
     findById: jest.fn(),
     insert: jest.fn(),
     markRevoked: jest.fn(),
+    markSuperseded: jest.fn(),
     listPage: jest.fn(),
   };
   const easyRsa = {
@@ -128,6 +131,96 @@ describe('VpnService.create', () => {
     expect(repo.insert).toHaveBeenCalledWith(
       expect.objectContaining({ hasPassword: false }),
     );
+  });
+});
+
+describe('VpnService.renew', () => {
+  it('issues a replacement keeping the label and description', async () => {
+    const { service, repo, easyRsa } = setup();
+    const current = makeCredential({ description: 'Alice — eng' });
+    repo.findById
+      .mockReturnValueOnce(current)
+      .mockReturnValue(
+        makeCredential({ id: 'id-2', commonName: 'alice-def456' }),
+      );
+
+    const result = await service.renew('id-1', {});
+
+    expect(result.profile).toBe('PROFILE');
+    const newCn = easyRsa.issueClient.mock.calls[0][0] as string;
+    expect(newCn).toMatch(/^alice-[0-9a-f]{6}$/);
+    expect(newCn).not.toBe(current.commonName);
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'alice', description: 'Alice — eng' }),
+    );
+  });
+
+  it('leaves the old certificate valid, only marking it superseded', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findById
+      .mockReturnValueOnce(makeCredential())
+      .mockReturnValue(makeCredential({ id: 'id-2' }));
+
+    await service.renew('id-1', {});
+
+    // Revoking here would cut the holder off before they get the new profile.
+    expect(easyRsa.revokeClient).not.toHaveBeenCalled();
+    expect(repo.markRevoked).not.toHaveBeenCalled();
+    expect(repo.markSuperseded).toHaveBeenCalledWith(
+      'id-1',
+      expect.any(String),
+    );
+  });
+
+  it('does not supersede the original when issuing fails', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findById.mockReturnValue(makeCredential());
+    easyRsa.issueClient.mockRejectedValueOnce(new Error('pki down'));
+
+    await expect(service.renew('id-1', {})).rejects.toThrow('pki down');
+    expect(repo.markSuperseded).not.toHaveBeenCalled();
+    expect(repo.insert).not.toHaveBeenCalled();
+  });
+
+  it('can set a passphrase on the replacement key', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findById
+      .mockReturnValueOnce(makeCredential())
+      .mockReturnValue(makeCredential({ id: 'id-2', hasPassword: true }));
+
+    await service.renew('id-1', { password: 'nova-senha-123' });
+
+    expect(easyRsa.issueClient).toHaveBeenCalledWith(
+      expect.any(String),
+      'nova-senha-123',
+    );
+    expect(repo.insert).toHaveBeenCalledWith(
+      expect.objectContaining({ hasPassword: true }),
+    );
+  });
+
+  it('refuses to renew a revoked credential', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findById.mockReturnValue(
+      makeCredential({ status: VpnCredentialStatus.REVOKED }),
+    );
+
+    await expect(service.renew('id-1', {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(easyRsa.issueClient).not.toHaveBeenCalled();
+  });
+
+  it('refuses to renew an already-superseded credential', async () => {
+    const { service, repo, easyRsa } = setup();
+    repo.findById.mockReturnValue(
+      makeCredential({ supersededAt: '2026-02-01T00:00:00.000Z' }),
+    );
+
+    await expect(service.renew('id-1', {})).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+    expect(easyRsa.issueClient).not.toHaveBeenCalled();
   });
 });
 

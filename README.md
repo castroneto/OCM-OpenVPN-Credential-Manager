@@ -103,7 +103,7 @@ apt install -y nodejs easy-rsa
 **2. Download the `.deb`** from the GitHub Release (matching the arch):
 
 ```bash
-curl -fLO https://github.com/castroneto/OCM-OpenVPN-Credential-Manager/releases/download/v0.3.0/ocm_0.3.0_amd64.deb
+curl -fLO https://github.com/castroneto/OCM-OpenVPN-Credential-Manager/releases/download/v0.4.0/ocm_0.4.0_amd64.deb
 ```
 
 **3. Install it.** debconf asks where your OpenVPN lives — the PKI directory,
@@ -111,7 +111,7 @@ the config directory, the public host clients connect to, and the console's
 port and bind address:
 
 ```bash
-apt install -y ./ocm_0.3.0_amd64.deb
+apt install -y ./ocm_0.4.0_amd64.deb
 ```
 
 The installer verifies OpenVPN, adopts that PKI, derives a matching client
@@ -147,6 +147,17 @@ ssh -L 8080:127.0.0.1:80 root@<server>
 Sign in → **Credentials → New credential** → a ready-to-use `.ovpn` downloads
 immediately, built for the server you already run.
 
+### Renewing a credential
+
+The console flags a certificate as **EXPIRED**, or warns 30 days ahead, so a
+lapse never takes you by surprise. **Renew** issues a replacement under the
+same name and downloads the new `.ovpn`.
+
+The old certificate keeps working and is shown as **REPLACED** — a client
+certificate lives on the user's device, so revoking it at renewal time would
+cut them off before they receive the new file. Revoke the replaced entry once
+the person confirms the new profile works.
+
 > ⚠️ **Before binding the console to a public interface:** it serves plain
 > **HTTP**. Put a TLS reverse proxy (Caddy/nginx + Let's Encrypt) in front, or
 > restrict the port to your IP in the firewall. The default `127.0.0.1` keeps
@@ -168,8 +179,8 @@ sudo ocm-admin import-clients [--dry-run] # adopt clients already in the PKI
 
 ```bash
 pnpm install
-bash installer/scripts/build-deb.sh 0.3.0
-# -> dist/ocm_0.3.0_amd64.deb
+bash installer/scripts/build-deb.sh 0.4.0
+# -> dist/ocm_0.4.0_amd64.deb
 ```
 
 Requires `dpkg-deb` (from `dpkg-dev`) and `pnpm`. Build on amd64 so the

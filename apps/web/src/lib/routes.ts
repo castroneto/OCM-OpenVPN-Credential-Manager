@@ -16,6 +16,7 @@ export const Routes = {
   vpn: {
     root: `/${API}/vpn/credentials`,
     download: (id: string) => `/${API}/vpn/credentials/${id}/config`,
+    renew: (id: string) => `/${API}/vpn/credentials/${id}/renew`,
     revoke: (id: string) => `/${API}/vpn/credentials/${id}/revoke`,
   },
   health: `/${API}/health`,

@@ -12,6 +12,7 @@ interface VpnRow {
   created_at: string;
   revoked_at: string | null;
   expires_at: string | null;
+  superseded_at: string | null;
 }
 
 function mapRow(row: VpnRow): VpnCredential {
@@ -29,6 +30,7 @@ function mapRow(row: VpnRow): VpnCredential {
     createdAt: row.created_at,
     revokedAt: row.revoked_at,
     expiresAt: row.expires_at,
+    supersededAt: row.superseded_at,
   };
 }
 
@@ -50,11 +52,16 @@ export class VpnRepository {
     return row ? mapRow(row) : null;
   }
 
-  /** An active credential currently using this label, if any. */
+  /**
+   * The credential currently holding this label, if any. A superseded row is
+   * excluded: its replacement is the current one, so the label is not free.
+   */
   findActiveByName(name: string): VpnCredential | null {
     const row = this.database.db
       .prepare(
-        `SELECT * FROM vpn_credentials WHERE name = ? AND status = 'ACTIVE' LIMIT 1`,
+        `SELECT * FROM vpn_credentials
+         WHERE name = ? AND status = 'ACTIVE' AND superseded_at IS NULL
+         LIMIT 1`,
       )
       .get(name) as VpnRow | undefined;
     return row ? mapRow(row) : null;
@@ -99,6 +106,13 @@ export class VpnRepository {
         record.expiresAt,
         record.hasPassword ? 1 : 0,
       );
+  }
+
+  /** Flag a credential as replaced by a renewal (it stays cryptographically valid). */
+  markSuperseded(id: string, supersededAt: string): void {
+    this.database.db
+      .prepare('UPDATE vpn_credentials SET superseded_at = ? WHERE id = ?')
+      .run(supersededAt, id);
   }
 
   markRevoked(id: string, revokedAt: string): void {

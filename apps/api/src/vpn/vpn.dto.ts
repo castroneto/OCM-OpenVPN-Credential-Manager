@@ -45,6 +45,18 @@ export class CreateVpnCredentialDto {
   password?: string;
 }
 
+/**
+ * Body used to renew a credential. The name and description are inherited from
+ * the credential being replaced; only the key passphrase can be chosen anew,
+ * since it is never stored and so cannot be carried over.
+ */
+export class RenewVpnCredentialDto {
+  @IsOptional()
+  @IsString()
+  @Length(8, 128)
+  password?: string;
+}
+
 /** Route param `:id` for a VPN credential. */
 export class VpnCredentialIdParamDto {
   @IsUUID('4')

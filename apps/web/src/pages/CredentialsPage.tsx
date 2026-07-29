@@ -127,6 +127,7 @@ function CredentialRow({
 }) {
   const [busy, setBusy] = useState(false);
   const revoked = credential.status === 'REVOKED';
+  const state = credentialState(credential);
 
   async function download() {
     setBusy(true);
@@ -168,8 +169,8 @@ function CredentialRow({
       </Table.RowHeaderCell>
       <Table.Cell>{credential.description ?? '—'}</Table.Cell>
       <Table.Cell>
-        <Badge color={revoked ? 'red' : 'green'} variant="soft">
-          {credential.status}
+        <Badge color={state.color} variant="soft" title={state.hint}>
+          {state.label}
         </Badge>
       </Table.Cell>
       <Table.Cell>{formatDate(credential.createdAt)}</Table.Cell>
@@ -184,6 +185,12 @@ function CredentialRow({
           >
             Download
           </Button>
+          {!revoked && !credential.supersededAt && (
+            <RenewCredentialDialog
+              credential={credential}
+              onRenewed={onChanged}
+            />
+          )}
           {!revoked && (
             <AlertDialog.Root>
               <AlertDialog.Trigger>
@@ -387,6 +394,196 @@ function CreateCredentialDialog({
           </Dialog.Close>
           <Button onClick={submit} loading={submitting} disabled={!canSubmit}>
             Create &amp; download
+          </Button>
+        </Flex>
+      </Dialog.Content>
+    </Dialog.Root>
+  );
+}
+
+/** Warn this many days ahead, leaving time to hand over a new profile. */
+const EXPIRY_WARNING_DAYS = 30;
+
+interface CredentialState {
+  label: string;
+  color: 'red' | 'amber' | 'gray' | 'green';
+  hint: string;
+}
+
+/**
+ * The status column shows more than the stored ACTIVE/REVOKED: an expired
+ * certificate is rejected by OpenVPN even though the row still reads ACTIVE,
+ * so showing it as active would be misleading.
+ */
+function credentialState(credential: VpnCredential): CredentialState {
+  if (credential.status === 'REVOKED') {
+    return { label: 'REVOKED', color: 'red', hint: 'Blocked by the CRL' };
+  }
+  if (credential.supersededAt) {
+    return {
+      label: 'REPLACED',
+      color: 'gray',
+      hint: 'Renewed — still works until revoked or expired',
+    };
+  }
+
+  const days = daysUntil(credential.expiresAt);
+  if (days !== null && days < 0) {
+    return {
+      label: 'EXPIRED',
+      color: 'red',
+      hint: 'The certificate expired; OpenVPN refuses it. Renew to reissue.',
+    };
+  }
+  if (days !== null && days <= EXPIRY_WARNING_DAYS) {
+    return {
+      label: days === 0 ? 'EXPIRES TODAY' : `EXPIRES IN ${days}D`,
+      color: 'amber',
+      hint: 'Renew and hand over the new profile before it lapses',
+    };
+  }
+  return { label: 'ACTIVE', color: 'green', hint: 'Valid' };
+}
+
+/** Whole days from now until `value`; negative once it has passed. */
+function daysUntil(value: string | null): number | null {
+  if (!value) return null;
+  const target = new Date(value).getTime();
+  if (Number.isNaN(target)) return null;
+  return Math.floor((target - Date.now()) / 86_400_000);
+}
+
+/**
+ * Issue a replacement certificate for the same person.
+ *
+ * The current certificate is deliberately left working: it lives on the
+ * holder's device, so revoking it here would cut them off before they receive
+ * the new profile. Revoke it once the replacement is confirmed.
+ */
+function RenewCredentialDialog({
+  credential,
+  onRenewed,
+}: {
+  credential: VpnCredential;
+  onRenewed: () => Promise<void>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [protectWithPassword, setProtectWithPassword] = useState(false);
+  const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const canSubmit =
+    !protectWithPassword ||
+    (password.length >= 8 && password === confirmPassword);
+
+  async function submit() {
+    setError(null);
+    setSubmitting(true);
+    try {
+      const { credential: renewed, profile } = await api.renewCredential(
+        credential.id,
+        protectWithPassword ? password : undefined,
+      );
+      triggerDownload(`${renewed.name}.ovpn`, profile);
+      setProtectWithPassword(false);
+      setPassword('');
+      setConfirmPassword('');
+      setOpen(false);
+      await onRenewed();
+    } catch (err) {
+      setError(
+        err instanceof ApiError ? err.message : 'Failed to renew credential',
+      );
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger>
+        <Button size="1" variant="soft" color="blue">
+          Renew
+        </Button>
+      </Dialog.Trigger>
+      <Dialog.Content maxWidth="460px">
+        <Dialog.Title>Renew {credential.name}</Dialog.Title>
+        <Dialog.Description size="2" color="gray" mb="3">
+          Issues a fresh certificate and downloads the new .ovpn profile.
+        </Dialog.Description>
+
+        <Callout.Root color="blue" size="1" mb="3">
+          <Callout.Text>
+            The current certificate keeps working, so {credential.name} stays
+            connected until you hand over the new profile. Revoke the old entry
+            once the replacement is confirmed.
+          </Callout.Text>
+        </Callout.Root>
+
+        {error && (
+          <Callout.Root color="red" size="1" mb="3">
+            <Callout.Text>{error}</Callout.Text>
+          </Callout.Root>
+        )}
+
+        <Flex direction="column" gap="3">
+          <Flex asChild align="center" gap="2">
+            <label>
+              <Switch
+                checked={protectWithPassword}
+                onCheckedChange={(checked) => {
+                  setProtectWithPassword(checked);
+                  if (!checked) {
+                    setPassword('');
+                    setConfirmPassword('');
+                  }
+                }}
+              />
+              <Text size="2" weight="medium">
+                Protect the new private key with a password
+              </Text>
+            </label>
+          </Flex>
+
+          {protectWithPassword && (
+            <>
+              <label>
+                <Text as="div" size="2" mb="1" weight="medium">
+                  Password
+                </Text>
+                <TextField.Root
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="At least 8 characters"
+                  autoComplete="new-password"
+                />
+              </label>
+              <label>
+                <Text as="div" size="2" mb="1" weight="medium">
+                  Confirm password
+                </Text>
+                <TextField.Root
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="new-password"
+                />
+              </label>
+            </>
+          )}
+        </Flex>
+
+        <Flex gap="3" mt="4" justify="end">
+          <Dialog.Close>
+            <Button variant="soft" color="gray">
+              Cancel
+            </Button>
+          </Dialog.Close>
+          <Button onClick={submit} loading={submitting} disabled={!canSubmit}>
+            Renew &amp; download
           </Button>
         </Flex>
       </Dialog.Content>

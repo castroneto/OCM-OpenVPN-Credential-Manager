@@ -114,6 +114,15 @@ export const api = {
       },
     }),
 
+  renewCredential: (
+    id: string,
+    password?: string,
+  ): Promise<{ credential: VpnCredential; profile: string }> =>
+    request<{ credential: VpnCredential; profile: string }>(
+      Routes.vpn.renew(id),
+      { method: 'POST', body: password ? { password } : {} },
+    ),
+
   revokeCredential: (id: string): Promise<VpnCredential> =>
     request<VpnCredential>(Routes.vpn.revoke(id), { method: 'POST' }),
 

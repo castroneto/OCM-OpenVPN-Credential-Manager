@@ -64,5 +64,13 @@ export function applySchema(db: Database.Database): void {
     'ALTER TABLE vpn_credentials ADD COLUMN has_password INTEGER NOT NULL DEFAULT 0',
   );
 
+  // Set when a renewal replaced this credential. The certificate stays valid
+  // until revoked or expired, so the holder keeps working while the new
+  // profile is delivered.
+  addColumnIfMissing(
+    db,
+    'ALTER TABLE vpn_credentials ADD COLUMN superseded_at TEXT',
+  );
+
   for (const statement of INDEX_STATEMENTS) db.exec(statement);
 }
